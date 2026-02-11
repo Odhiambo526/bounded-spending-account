@@ -1,4 +1,4 @@
-> **⚠️ WARNING: These contracts are not safe for production use.** They have not been audited and may contain critical bugs or vulnerabilities. Use only for development, testing, or educational purposes. Do not deploy with real funds.
+> **⚠️ WARNING: The contracts have not been audited and may contain bugs or vulnerabilities.** 
 
 ## Setup
 
