@@ -65,7 +65,7 @@ contract SpendingAccount is IAccount {
     event EthSpent(uint256 amount);
     event UsdcSpent(uint256 amount);
     event EmergencyWithdrawRequested();
-    event EmergencyWithdrawExecuted(address to, uint256 amount);
+    event EmergencyWithdrawExecuted(address to, uint256 ethAmount, uint256 usdcAmount);
 
     constructor(
         IEntryPoint _entryPoint,
@@ -394,7 +394,7 @@ contract SpendingAccount is IAccount {
         emit EmergencyWithdrawRequested();
     }
 
-    /// @notice Execute emergency withdraw after 48h. Only vaultOwner. Sends all ETH to recipient.
+    /// @notice Execute emergency withdraw after 48h. Only vaultOwner. Sends all ETH and USDC to recipient.
     /// @param recipient Address to receive the funds.
     function emergencyWithdraw(address payable recipient) external {
         if (msg.sender != vaultOwner) revert NotVaultOwner();
@@ -403,9 +403,22 @@ contract SpendingAccount is IAccount {
             revert WithdrawTimelockNotMet();
         }
         emergencyWithdrawRequestTime = 0;
-        uint256 amount = address(this).balance;
-        (bool ok,) = recipient.call{value: amount}("");
-        if (!ok) revert();
-        emit EmergencyWithdrawExecuted(recipient, amount);
+
+        uint256 ethAmount = address(this).balance;
+        if (ethAmount > 0) {
+            (bool ok,) = recipient.call{value: ethAmount}("");
+            if (!ok) revert();
+        }
+
+        uint256 usdcAmount = 0;
+        if (USDC.code.length > 0) {
+            usdcAmount = IERC20(USDC).balanceOf(address(this));
+            if (usdcAmount > 0) {
+                bool ok = IERC20(USDC).transfer(recipient, usdcAmount);
+                if (!ok) revert();
+            }
+        }
+
+        emit EmergencyWithdrawExecuted(recipient, ethAmount, usdcAmount);
     }
 }
