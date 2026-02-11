@@ -87,6 +87,17 @@ contract SpendingAccountAdversarialTest is Test {
         );
     }
 
+    /// @notice ETH send to USDC contract would burn ETH - rejected
+    function test_Adversarial_EthToUsdcReverts() public {
+        vm.prank(address(entryPoint));
+        vm.expectRevert(SpendingAccount.InvalidTargetOrSelector.selector);
+        account.execute(
+            USDC,
+            1 ether,
+            abi.encodeWithSelector(IERC20.transfer.selector, attacker, 100e6)
+        );
+    }
+
     /// @notice Direct call (not from EntryPoint) cannot execute
     function test_Adversarial_BypassEntryPointCannotExecute() public {
         vm.prank(attacker);

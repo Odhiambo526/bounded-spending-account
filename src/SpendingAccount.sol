@@ -251,6 +251,7 @@ contract SpendingAccount is IAccount {
     ) internal pure returns (uint256 ethAmount, uint256 usdcAmount) {
         if (value > 0) ethAmount = value;
         if (target == USDC) {
+            if (value > 0) revert InvalidTargetOrSelector(); // ETH to USDC would be burned
             if (data.length < 4) revert InvalidSelector();
             bytes4 selector;
             assembly {
