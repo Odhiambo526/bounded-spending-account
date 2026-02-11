@@ -27,8 +27,12 @@ contract SpendingPaymaster is BasePaymaster {
     /// @notice Max cost per tx (ETH wei). Hard cap.
     uint256 public constant MAX_COST_CAP = 0.01 ether;
 
+    /// @notice Minimum postOp gas. USDC transfer needs ~50–80k; EIP-150 63/64 rule + overhead.
+    uint256 private constant MIN_POSTOP_GAS = 100_000;
+
     error CostCapExceeded(uint256 maxCost, uint256 cap);
     error InsufficientUsdcBalance(address account, uint256 required);
+    error PostOpGasTooLow(uint256 postOpGasLimit, uint256 minRequired);
 
     constructor(IEntryPoint _entryPoint, uint256 _usdcPerEth) BasePaymaster(_entryPoint) {
         usdcPerEth = _usdcPerEth;
@@ -39,6 +43,12 @@ contract SpendingPaymaster is BasePaymaster {
         bytes32,
         uint256 maxCost
     ) internal view override returns (bytes memory context, uint256 validationData) {
+        if (userOp.paymasterAndData.length >= UserOperationLib.PAYMASTER_DATA_OFFSET) {
+            uint256 postOpGasLimit = userOp.unpackPostOpGasLimit();
+            if (postOpGasLimit < MIN_POSTOP_GAS) {
+                revert PostOpGasTooLow(postOpGasLimit, MIN_POSTOP_GAS);
+            }
+        }
         if (maxCost > MAX_COST_CAP) {
             revert CostCapExceeded(maxCost, MAX_COST_CAP);
         }

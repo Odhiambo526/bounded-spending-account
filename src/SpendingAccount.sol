@@ -61,6 +61,7 @@ contract SpendingAccount is IAccount {
     error InvalidSelector();
     error WithdrawTimelockNotMet();
     error NoWithdrawRequested();
+    error InsufficientGasForUsdcTransfer(uint256 gasLeft, uint256 minRequired);
 
     event EthSpent(uint256 amount);
     event UsdcSpent(uint256 amount);
@@ -221,9 +222,15 @@ contract SpendingAccount is IAccount {
         }
     }
 
+    /// @notice Minimum gas for USDC transfer. EIP-150 forwards 63/64 to sub-call; transfer needs ~50–80k.
+    uint256 private constant MIN_GAS_FOR_USDC_TRANSFER = 60_000;
+
     /// @notice Pay for gas in USDC. Callable only by the configured paymaster.
     function payForGasInUsdc(uint256 amount) external {
         if (msg.sender != paymasterAddress) revert NotFromPaymaster();
+        if (gasleft() < MIN_GAS_FOR_USDC_TRANSFER) {
+            revert InsufficientGasForUsdcTransfer(gasleft(), MIN_GAS_FOR_USDC_TRANSFER);
+        }
         _applyUsdcSpend(amount);
         bool ok = Exec.call(
             USDC,
