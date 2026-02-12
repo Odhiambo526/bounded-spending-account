@@ -16,10 +16,10 @@ contract Deploy is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envOr("PRIVATE_KEY", uint256(0));
         if (deployerPrivateKey == 0) {
-            deployerPrivateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+            revert("PRIVATE_KEY must be set in .env");
         }
-
-        address vaultOwner = vm.envOr("VAULT_OWNER", vm.addr(deployerPrivateKey));
+        address deployer = vm.addr(deployerPrivateKey);
+        address vaultOwner = vm.envOr("VAULT_OWNER", deployer);
         uint256 dailyEthLimit = vm.envOr("DAILY_ETH_LIMIT", uint256(0.1 ether));
         uint256 monthlyEthLimit = vm.envOr("MONTHLY_ETH_LIMIT", uint256(2 ether));
         uint256 dailyUsdcLimit = vm.envOr("DAILY_USDC_LIMIT", uint256(500e6));
@@ -28,18 +28,21 @@ contract Deploy is Script {
 
         // Fund deployer for paymaster deposit (local/anvil simulation)
         if (block.chainid == 31337) {
-            vm.deal(vm.addr(deployerPrivateKey), 100 ether);
+            vm.deal(deployer, 100 ether);
         }
 
         vm.startBroadcast(deployerPrivateKey);
 
-        // Deploy EntryPoint for local/test. For Base mainnet, use canonical 0x0000000071727De22E5E9d8BAf0edAc6f37da032
-        // and deploy Paymaster/Factory separately pointing to it.
+        // Deploy EntryPoint for compatibility with our account-abstraction lib. Use canonical on mainnet if desired.
         EntryPoint ep = new EntryPoint();
         IEntryPoint entryPoint = IEntryPoint(address(ep));
 
         SpendingPaymaster paymaster = new SpendingPaymaster(entryPoint, usdcPerEth);
-        paymaster.deposit{value: 0.1 ether}();
+        uint256 defaultDeposit = block.chainid == 31337 ? 0.1 ether : 0.01 ether;
+        uint256 paymasterDeposit = vm.envOr("PAYMASTER_DEPOSIT", defaultDeposit);
+        if (paymasterDeposit > 0) {
+            paymaster.deposit{value: paymasterDeposit}();
+        }
 
         SpendingAccountFactory factory = new SpendingAccountFactory(
             entryPoint,
