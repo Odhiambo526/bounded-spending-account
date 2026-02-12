@@ -16,8 +16,3 @@ forge test
 
 Dependencies (already in `lib/`): account-abstraction, forge-std. OpenZeppelin via npm.
 
-## Deploy
-
-```bash
-forge script script/Deploy.s.sol --broadcast --rpc-url <RPC_URL> --private-key <PK>
-```
