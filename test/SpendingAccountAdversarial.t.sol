@@ -198,6 +198,42 @@ contract SpendingAccountAdversarialTest is Test {
         account.executeBatch(calls);
     }
 
+    // ========== PANIC COOLDOWN ==========
+
+    /// @notice Large spend (>50% of daily limit) triggers 1h cooldown; subsequent tx within cooldown reverts
+    function test_Adversarial_PanicCooldown_BlocksRapidLargeSpends() public {
+        // 0.26 ether * 2000 USDC/ETH = 520e6 USDC equiv > 50% of 1000e6 daily limit
+        vm.prank(address(entryPoint));
+        account.execute(payable(attacker), 0.26 ether, "");
+        assertEq(account.lastLargeSpendTime(), block.timestamp);
+
+        vm.warp(block.timestamp + 30 minutes);
+        vm.prank(address(entryPoint));
+        vm.expectRevert(SpendingAccount.LargeSpendCooldownActive.selector);
+        account.execute(payable(attacker), 0.1 ether, "");
+    }
+
+    /// @notice Small spend (<50% of daily limit) does NOT trigger cooldown; multiple small txs succeed
+    function test_Adversarial_PanicCooldown_SmallSpendsUnaffected() public {
+        // 0.2 ether * 2000 = 400e6 USDC equiv < 50% of 1000e6
+        vm.prank(address(entryPoint));
+        account.execute(payable(attacker), 0.2 ether, "");
+        vm.prank(address(entryPoint));
+        account.execute(payable(attacker), 0.2 ether, "");
+        assertEq(account.dailyEthSpent(), 0.4 ether);
+    }
+
+    /// @notice Cooldown expires after 1 hour; large spend can proceed again
+    function test_Adversarial_PanicCooldown_ExpiresAfterOneHour() public {
+        vm.prank(address(entryPoint));
+        account.execute(payable(attacker), 0.26 ether, "");
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        vm.prank(address(entryPoint));
+        account.execute(payable(attacker), 0.26 ether, "");
+        assertEq(account.dailyEthSpent(), 0.52 ether);
+    }
+
     /// @notice Prefund: addDeposit sends to EntryPoint only; no arbitrary recipient
     function test_Adversarial_AddDepositOnlyFundsEntryPoint() public {
         uint256 epBalanceBefore = entryPoint.balanceOf(address(account));

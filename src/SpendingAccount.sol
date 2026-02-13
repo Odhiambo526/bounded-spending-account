@@ -54,6 +54,11 @@ contract SpendingAccount is IAccount {
     uint256 public emergencyWithdrawRequestTime;
     uint256 private constant WITHDRAW_TIMELOCK = 48 hours;
 
+    /// @notice Panic Cooldown: timestamp of last large spend (>50% of daily limit). Blocks further txs for 1 hour.
+    uint256 public lastLargeSpendTime;
+    uint256 private constant COOLDOWN_PERIOD = 1 hours;
+    uint256 private constant PANIC_THRESHOLD_BPS = 5000; // 50%
+
     error NotFromEntryPoint();
     error NotFromPaymaster();
     error NotVaultOwner();
@@ -62,6 +67,7 @@ contract SpendingAccount is IAccount {
     error WithdrawTimelockNotMet();
     error NoWithdrawRequested();
     error InsufficientGasForUsdcTransfer(uint256 gasLeft, uint256 minRequired);
+    error LargeSpendCooldownActive();
 
     event EthSpent(uint256 amount);
     event UsdcSpent(uint256 amount);
@@ -154,7 +160,8 @@ contract SpendingAccount is IAccount {
     }
 
     /// @notice Validate limits without updating state. Used in validateUserOp preflight.
-    function _validatePreflightLimits(uint256 ethSpend, uint256 usdcSpend) internal view {
+    /// @dev Panic Cooldown: if spend >50% of daily limit, enforces 1h cooldown before any further tx.
+    function _validatePreflightLimits(uint256 ethSpend, uint256 usdcSpend) internal {
         uint256 nowTs = block.timestamp;
         (, , uint256 dailyEth, uint256 monthlyEth) = LimitPolicy.maybeResetWindows(
             lastDailyResetTimestamp, lastMonthlyResetTimestamp, dailyEthSpent, monthlyEthSpent, nowTs
@@ -167,6 +174,24 @@ contract SpendingAccount is IAccount {
         }
         if (usdcSpend > 0) {
             LimitPolicy.validateUsdcSpend(dailyUsdc, monthlyUsdc, dailyUsdcLimit, monthlyUsdcLimit, usdcSpend);
+        }
+
+        _checkAndUpdatePanicCooldown(ethSpend, usdcSpend);
+    }
+
+    /// @notice Convert ETH amount to USDC-equivalent value using operator-set rate.
+    function _getUsdValue(uint256 ethAmount) internal view returns (uint256) {
+        return ethAmount * usdcPerEth / 1e18;
+    }
+
+    /// @notice Panic Cooldown: if spend >50% of daily limit, enforce 1h cooldown before *any* further tx.
+    function _checkAndUpdatePanicCooldown(uint256 ethAmount, uint256 usdcAmount) internal {
+        if (lastLargeSpendTime != 0 && block.timestamp < lastLargeSpendTime + COOLDOWN_PERIOD) {
+            revert LargeSpendCooldownActive();
+        }
+        uint256 totalUsdValue = _getUsdValue(ethAmount) + usdcAmount;
+        if (totalUsdValue > (dailyUsdcLimit * PANIC_THRESHOLD_BPS) / 10000) {
+            lastLargeSpendTime = block.timestamp;
         }
     }
 
@@ -215,6 +240,7 @@ contract SpendingAccount is IAccount {
             totalEth += ethAmount;
             totalUsdc += usdcAmount;
         }
+        _checkAndUpdatePanicCooldown(totalEth, totalUsdc);
         _applySpendAndUpdate(totalEth, totalUsdc);
         for (uint256 i = 0; i < calls.length; i++) {
             Call calldata c = calls[i];
@@ -247,6 +273,7 @@ contract SpendingAccount is IAccount {
         bytes calldata data
     ) internal {
         (uint256 ethAmount, uint256 usdcAmount) = _parseSpendAmounts(target, value, bytes(data));
+        _checkAndUpdatePanicCooldown(ethAmount, usdcAmount);
         _applySpendAndUpdate(ethAmount, usdcAmount);
     }
 
